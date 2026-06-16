@@ -1,13 +1,13 @@
 {
   "manifest_version": 3,
-  "name": "Tab Volume",
+  "name": "Tab Volume Control - No Ads/Tracking",
   "version": "1.0.0",
-  "description": "Set or boost the audio volume of an individual tab (up to 600%) without affecting other tabs. The setting is cleared when the tab is closed.",
+  "description": "Boost or lower the volume of individual tabs, up to 600%, without affecting other tabs. Lightweight, with no ads, no tracking, and no network access.",
   "author": "407 Dev",
   "homepage_url": "https://407.dev",
   "browser_specific_settings": {
     "gecko": {
-      "id": "tab-volume@407.dev",
+      "id": "tab-volume-control@407.dev",
       "strict_min_version": "121.0"
     }
   },
@@ -25,7 +25,7 @@
     }
   ],
   "action": {
-    "default_title": "Tab Volume",
+    "default_title": "Tab Volume Control",
     "default_popup": "popup.html",
     "default_icon": {
       "16": "icons/icon-16.png",

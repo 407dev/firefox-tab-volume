@@ -1,4 +1,5 @@
-# Build artifact (regenerate with the zip command in README.md)
+# Build artifact (regenerate with ./build.sh)
+tab-volume-control.zip
 tab-volume.zip
 
 # Claude Code local settings

@@ -1,8 +1,8 @@
-# Tab Volume
+# Tab Volume Control
 
-A Firefox extension to set or boost the audio volume of an individual tab — up
-to 600% — without affecting any other tab. The level is remembered while you
-navigate within the tab and is cleared when the tab closes.
+A lightweight Firefox extension to set or boost the audio volume of an individual
+tab — up to 600% — without affecting any other tab. The level is remembered while
+you navigate within the tab and is cleared when the tab closes.
 
 No ads, no tracking, no network access.
 
@@ -15,7 +15,7 @@ No ads, no tracking, no network access.
 
 ## Install
 
-Available on [Firefox Add-ons](https://addons.mozilla.org/firefox/addon/tab-volume/)
+Available on [Firefox Add-ons](https://addons.mozilla.org/firefox/addon/tab-volume-control-no-ads-tracking/)
 *(pending review)*.
 
 ## How it works
@@ -28,13 +28,13 @@ processing happens locally in the page.
 
 ```bash
 # Build the extension package
-./build.sh           # produces tab-volume.zip
+./build.sh           # produces tab-volume-control.zip
 ```
 
 Then load it in Firefox:
 
 1. Open `about:debugging#/runtime/this-firefox`
-2. **Load Temporary Add-on…** → select `tab-volume.zip`
+2. **Load Temporary Add-on…** → select `tab-volume-control.zip`
 3. Reload any audio tab so the content script is injected
 
 > On Flatpak/Snap Firefox, load the **zip**, not the unpacked folder — see

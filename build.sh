@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Build the distributable extension package (tab-volume.zip).
+# Build the distributable extension package (tab-volume-control.zip).
 set -euo pipefail
 cd "$(dirname "$0")"
 
-OUT="tab-volume.zip"
+OUT="tab-volume-control.zip"
 rm -f "$OUT"
 zip -r -FS "$OUT" \
   manifest.json \
