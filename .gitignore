@@ -1,0 +1,8 @@
+# Build artifact (regenerate with the zip command in README.md)
+tab-volume.zip
+
+# Claude Code local settings
+.claude/settings.local.json
+
+# OS cruft
+.DS_Store

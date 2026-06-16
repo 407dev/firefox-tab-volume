@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <div class="title" id="tab-title">Current tab</div>
+
+    <div class="readout">
+      <span id="value">100</span><span class="pct">%</span>
+    </div>
+
+    <input
+      id="slider"
+      type="range"
+      min="0"
+      max="600"
+      step="5"
+      value="100"
+      aria-label="Tab volume percent"
+    />
+
+    <div class="presets">
+      <button data-level="100">100%</button>
+      <button data-level="200">200%</button>
+      <button data-level="300">300%</button>
+      <button data-level="600">600%</button>
+    </div>
+
+    <button id="reset" class="reset">Reset to 100%</button>
+
+    <div class="hint" id="hint"></div>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

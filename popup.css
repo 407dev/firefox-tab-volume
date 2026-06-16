@@ -1,0 +1,97 @@
+:root {
+  color-scheme: light dark;
+  --accent: #4c6ef5;
+  --boost: #e8590c;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  width: 248px;
+  margin: 0;
+  padding: 14px;
+  font: 13px/1.4 system-ui, sans-serif;
+}
+
+.title {
+  font-weight: 600;
+  font-size: 12px;
+  opacity: 0.7;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 8px;
+}
+
+.readout {
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  margin-bottom: 6px;
+}
+
+#value {
+  font-size: 30px;
+  font-weight: 700;
+}
+
+.readout.boosted #value {
+  color: var(--boost);
+}
+
+.pct {
+  font-size: 16px;
+  opacity: 0.6;
+  margin-left: 2px;
+}
+
+input[type="range"] {
+  width: 100%;
+  margin: 4px 0 12px;
+  accent-color: var(--accent);
+}
+
+.presets {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.presets button {
+  flex: 1;
+  padding: 6px 0;
+  font-size: 12px;
+  border: 1px solid color-mix(in srgb, currentColor 25%, transparent);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.presets button:hover {
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
+
+.reset {
+  width: 100%;
+  padding: 8px 0;
+  font-size: 12px;
+  border: none;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+}
+
+.reset:hover {
+  filter: brightness(1.08);
+}
+
+.hint {
+  margin-top: 8px;
+  font-size: 11px;
+  opacity: 0.6;
+  text-align: center;
+  min-height: 14px;
+}
