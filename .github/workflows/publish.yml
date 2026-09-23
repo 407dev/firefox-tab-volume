@@ -15,10 +15,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
       - name: Verify release tag matches manifest version
         if: github.event_name == 'release'
         run: |
@@ -32,31 +28,30 @@ jobs:
       - name: Build extension package
         run: ./build.sh
 
-      - name: Prepare AMO metadata from release notes
-        env:
-          RELEASE_BODY: ${{ github.event.release.body }}
-        run: |
-          node -e "
-            const fs = require('fs');
-            const notes = (process.env.RELEASE_BODY || '').trim();
-            const metadata = notes ? { version: { release_notes: { 'en-US': notes } } } : {};
-            fs.writeFileSync('amo-metadata.json', JSON.stringify(metadata, null, 2));
-          "
+      - name: web-ext lint
+        uses: kewisch/action-web-ext@v2
+        with:
+          cmd: lint
+          source: .
+          channel: listed
 
-      - name: Sign and submit to addons.mozilla.org
-        run: npx web-ext@8 sign --channel=listed --amo-metadata=amo-metadata.json --api-key="$AMO_JWT_ISSUER" --api-secret="$AMO_JWT_SECRET"
-        env:
-          AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
-          AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+      - name: web-ext sign
+        uses: kewisch/action-web-ext@v2
+        with:
+          cmd: sign
+          source: tab-volume-control.zip
+          channel: listed
+          releaseNotes: ${{ github.event.release.body }}
+          # AMO reviews listed submissions on its own schedule (minutes to
+          # days) — don't burn Actions minutes polling for that; the
+          # submission is already queued once this step succeeds. Check
+          # review status on the AMO developer dashboard.
+          approvalTimeout: 0
+          apiKey: ${{ secrets.AMO_JWT_ISSUER }}
+          apiSecret: ${{ secrets.AMO_JWT_SECRET }}
 
-      - name: Attach built zip to the release
+      - name: Attach built package to the release
         if: github.event_name == 'release'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload "${{ github.event.release.tag_name }}" tab-volume-control.zip --clobber
-
-      - name: Upload signed artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: signed-extension
-          path: web-ext-artifacts/*
