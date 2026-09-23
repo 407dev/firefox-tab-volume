@@ -1,0 +1,51 @@
+name: Publish to AMO
+
+# Triggered by publishing a GitHub Release. The release's tag must be
+# "v<manifest version>" (e.g. v1.0.4 for manifest.json version "1.0.4").
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Verify release tag matches manifest version
+        if: github.event_name == 'release'
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          MANIFEST_VERSION=$(node -p "require('./manifest.json').version")
+          if [ "$TAG_VERSION" != "$MANIFEST_VERSION" ]; then
+            echo "Release tag v$TAG_VERSION does not match manifest.json version $MANIFEST_VERSION"
+            exit 1
+          fi
+
+      - name: Build extension package
+        run: ./build.sh
+
+      - name: Sign and submit to addons.mozilla.org
+        run: npx web-ext@8 sign --channel=listed --api-key="$AMO_JWT_ISSUER" --api-secret="$AMO_JWT_SECRET"
+        env:
+          AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+          AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+
+      - name: Attach built zip to the release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${{ github.event.release.tag_name }}" tab-volume-control.zip --clobber
+
+      - name: Upload signed artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: signed-extension
+          path: web-ext-artifacts/*
