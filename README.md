@@ -15,8 +15,7 @@ No ads, no tracking, no network access.
 
 ## Install
 
-Available on [Firefox Add-ons](https://addons.mozilla.org/firefox/addon/tab-volume-control-no-ads-tracking/)
-*(pending review)*.
+Available on [Firefox Add-ons](https://addons.mozilla.org/firefox/addon/tab-volume-control-no-ads-tracking/).
 
 ## How it works
 
@@ -39,6 +38,25 @@ Then load it in Firefox:
 
 > On Flatpak/Snap Firefox, load the **zip**, not the unpacked folder — see
 > [Mozilla bug 1852990](https://bugzilla.mozilla.org/show_bug.cgi?id=1852990).
+
+## Releasing
+
+1. Bump `version` in `manifest.json` and commit it.
+2. Push to `main`.
+3. Draft a [new GitHub Release](https://github.com/407dev/firefox-tab-volume/releases/new),
+   tagged `v<version>` (e.g. `v1.0.5` for manifest version `1.0.5`) — the tag must match
+   the manifest version exactly. The release description becomes the AMO changelog.
+4. Publish the release.
+
+Publishing triggers [`.github/workflows/publish.yml`](.github/workflows/publish.yml), which
+builds the package, lints it, and submits it to AMO on the `listed` channel via
+[`kewisch/action-web-ext`](https://github.com/kewisch/action-web-ext), then attaches the
+built zip to the GitHub Release. AMO review can take anywhere from minutes to days — the
+workflow submits and exits rather than waiting on it; check submission status on the
+[AMO developer dashboard](https://addons.mozilla.org/developers/addons).
+
+Requires `AMO_JWT_ISSUER` and `AMO_JWT_SECRET` repo secrets (from AMO's
+[Manage API Keys](https://addons.mozilla.org/developers/addon/api/key/) page).
 
 ## Limitations
 
