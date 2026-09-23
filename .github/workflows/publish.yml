@@ -32,8 +32,19 @@ jobs:
       - name: Build extension package
         run: ./build.sh
 
+      - name: Prepare AMO metadata from release notes
+        env:
+          RELEASE_BODY: ${{ github.event.release.body }}
+        run: |
+          node -e "
+            const fs = require('fs');
+            const notes = (process.env.RELEASE_BODY || '').trim();
+            const metadata = notes ? { version: { release_notes: { 'en-US': notes } } } : {};
+            fs.writeFileSync('amo-metadata.json', JSON.stringify(metadata, null, 2));
+          "
+
       - name: Sign and submit to addons.mozilla.org
-        run: npx web-ext@8 sign --channel=listed --api-key="$AMO_JWT_ISSUER" --api-secret="$AMO_JWT_SECRET"
+        run: npx web-ext@8 sign --channel=listed --amo-metadata=amo-metadata.json --api-key="$AMO_JWT_ISSUER" --api-secret="$AMO_JWT_SECRET"
         env:
           AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
           AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
