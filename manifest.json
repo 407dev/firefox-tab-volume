@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Tab Volume Control - No Ads/Tracking",
-  "version": "1.0.0",
+  "version": "1.0.4",
   "description": "Boost or lower the volume of individual tabs, up to 600%, without affecting other tabs. Lightweight, with no ads, no tracking, and no network access.",
   "author": "407 Dev",
   "homepage_url": "https://407.dev",
