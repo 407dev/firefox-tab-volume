@@ -28,6 +28,13 @@
   const routed = new WeakSet();
   // Elements we have already seen, so applyAll is idempotent and cheap.
   const known = new Set();
+  // The volume value we ourselves last intentionally set on each element,
+  // recorded at the moment we set it (see applyTo). Lets the volumechange
+  // listener tell "this change is us" from "this change is external" even
+  // when the change came from setGain/applyAll rather than the listener's
+  // own correction — without this, our own legitimate volume application
+  // could falsely consume the one-shot correction guard below.
+  const lastSetVolume = new WeakMap();
 
   function getContext() {
     if (!audioCtx) {
@@ -77,23 +84,32 @@
     const gain = gainNodes.get(el);
     if (gain) {
       gain.gain.value = currentGain;
+      // The element's own volume must stay pinned at 1.0 so it doesn't
+      // compound with the gain node — re-assert in case something else
+      // (e.g. the page restoring its own remembered volume) changed it.
+      lastSetVolume.set(el, 1.0);
+      try { if (el.volume !== 1.0) el.volume = 1.0; } catch (_) {}
       resumeContext();
       return;
     }
 
     if (currentGain <= 1.0) {
       // No boost needed: stay on the simple, CORS-safe path.
-      try { el.volume = currentGain; } catch (_) {}
+      lastSetVolume.set(el, currentGain);
+      try { if (el.volume !== currentGain) el.volume = currentGain; } catch (_) {}
       return;
     }
 
     // Boost requested: route through Web Audio. If routing fails, clamp the
-    // element to full volume (best effort).
+    // element to full volume (best effort). Record the intended value before
+    // routing (which itself may set el.volume) so the volumechange listener
+    // never observes a stale expectation.
+    lastSetVolume.set(el, 1.0);
     const node = routeElement(el);
     if (node) {
       node.gain.value = currentGain;
     } else {
-      try { el.volume = 1.0; } catch (_) {}
+      try { if (el.volume !== 1.0) el.volume = 1.0; } catch (_) {}
     }
   }
 
@@ -101,10 +117,53 @@
     for (const el of known) applyTo(el);
   }
 
+  // volumechange carries no information about who changed it — a user
+  // dragging the page's own slider looks identical to a page overwriting
+  // it. So instead of reacting to volumechange indefinitely (which fights
+  // the native control forever) or for a guessed time window (which is
+  // exactly when a user is most likely to touch the slider), we:
+  //   1. Defer our *first* application until the element has loaded
+  //      metadata, so we apply after a player's own load-time volume
+  //      restore (e.g. YouTube's remembered volume) rather than racing it.
+  //   2. Correct only the very first divergence seen after that — covers a
+  //      restore that lands slightly later — then never touch the element
+  //      again, so every subsequent native-slider interaction just works.
   function track(el) {
     if (known.has(el)) return;
     known.add(el);
-    applyTo(el);
+
+    const firstApply = () => {
+      applyTo(el);
+      let corrected = false;
+      el.addEventListener("volumechange", () => {
+        if (corrected || el.volume === lastSetVolume.get(el)) return;
+        corrected = true;
+        applyTo(el);
+      });
+      // Some players (YouTube confirmed) re-apply their own remembered
+      // volume again around a seek (e.g. an ad boundary or segment change),
+      // well after the one-shot correction above already fired. Re-arm the
+      // guard specifically on seeking rather than on every volumechange —
+      // that would fight manual slider drags again (see project memory).
+      el.addEventListener("seeking", () => {
+        corrected = false;
+      });
+    };
+
+    if (el.readyState >= 1 /* HAVE_METADATA */) {
+      firstApply();
+      return;
+    }
+    let applied = false;
+    const once = () => {
+      if (applied) return;
+      applied = true;
+      firstApply();
+    };
+    el.addEventListener("loadedmetadata", once, { once: true });
+    // Fallback in case metadata never loads (e.g. a broken/unusual source):
+    // don't leave gain unapplied forever.
+    window.setTimeout(once, 1500);
   }
 
   function scan(root) {
