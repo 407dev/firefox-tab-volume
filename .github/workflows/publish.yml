@@ -13,7 +13,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Verify release tag matches manifest version
         if: github.event_name == 'release'
@@ -34,6 +34,9 @@ jobs:
           cmd: lint
           source: .
           channel: listed
+          # Lint only what build.sh ships. web-ext's API (which this action
+          # calls) doesn't read .web-extignore, so the list lives here.
+          ignoreFiles: '["build.sh", "README.md", "LICENSE", "tab-volume-control.zip"]'
 
       - name: web-ext sign
         uses: kewisch/action-web-ext@v2
