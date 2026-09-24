@@ -19,9 +19,11 @@ Available on [Firefox Add-ons](https://addons.mozilla.org/firefox/addon/tab-volu
 
 ## How it works
 
-At or below 100% the extension sets the media element's `volume` directly. Above
-100% it routes the element through a Web Audio `GainNode` to exceed the cap. All
-processing happens locally in the page.
+The tab level multiplies the page's own volume, so a site's volume slider keeps
+working and the tab level scales on top of it. At or below 100% the extension
+scales the media element's `volume`; above 100% it routes the element through a
+Web Audio `GainNode` to exceed the cap. All processing happens locally in the
+page.
 
 ## Development
 
@@ -60,10 +62,9 @@ Requires `AMO_JWT_ISSUER` and `AMO_JWT_SECRET` repo secrets (from AMO's
 
 ## Limitations
 
-- Boosting above 100% on a cross-origin media file served without CORS headers
-  produces silence (a Web Audio security rule). Staying at or below 100% always
-  works, and major streaming sites are unaffected.
-- DRM/EME-protected audio cannot be routed through Web Audio.
+- Boosting above 100% isn't possible for cross-origin media served without CORS
+  headers or for DRM/EME-protected media (Web Audio would output silence), so
+  those are capped at 100%. Major streaming sites like YouTube are unaffected.
 
 ## License
 

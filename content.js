@@ -4,12 +4,23 @@
  * Runs in every frame of every page. Holds the current gain level for this
  * page and applies it to all <audio>/<video> elements.
  *
- * Volume model:
- *   - level <= 1.0  : set element.volume directly (no Web Audio, no CORS risk).
+ * Volume model: the tab level *multiplies* the page's own volume rather than
+ * replacing it. A player's slider (e.g. YouTube's) keeps meaning what it
+ * says, and the tab level scales on top of it.
+ *
+ *   - The page sees a virtualized `volume` property: it reads back exactly
+ *     what it last set, and our scaling is invisible to it (see
+ *     installPageHooks). This avoids fighting players that restore their
+ *     own remembered volume, because their writes simply become the "page
+ *     volume" we scale.
+ *   - level <= 1.0  : element.volume = pageVolume * level (no Web Audio, no
+ *                     CORS risk).
  *   - level >  1.0  : route the element through a Web Audio GainNode so we can
- *                     exceed the browser's 100% cap. Once an element is routed,
- *                     it stays routed and the GainNode controls it for all
- *                     levels thereafter.
+ *                     exceed the browser's 100% cap; element.volume stays at
+ *                     pageVolume. Once an element is routed, it stays routed
+ *                     and the GainNode carries the level thereafter. Media
+ *                     Web Audio would silence (cross-origin without CORS,
+ *                     DRM) or that the page routes itself is capped at 100%.
  *
  * State lives only in this page, so it is destroyed when the tab/page goes
  * away. The persisted-per-tab level is owned by the background script; we ask
@@ -28,13 +39,13 @@
   const routed = new WeakSet();
   // Elements we have already seen, so applyAll is idempotent and cheap.
   const known = new Set();
-  // The volume value we ourselves last intentionally set on each element,
-  // recorded at the moment we set it (see applyTo). Lets the volumechange
-  // listener tell "this change is us" from "this change is external" even
-  // when the change came from setGain/applyAll rather than the listener's
-  // own correction — without this, our own legitimate volume application
-  // could falsely consume the one-shot correction guard below.
-  const lastSetVolume = new WeakMap();
+  // The volume each element's page believes it has (what it last set, or the
+  // element's volume when we first saw it).
+  const pageVolume = new WeakMap();
+  // Elements the page itself fed to createMediaElementSource. An element can
+  // feed only one source node, so routing it ourselves would break the
+  // site's player (e.g. SoundCloud) — these stay on the element.volume path.
+  const pageRouted = new WeakSet();
 
   function getContext() {
     if (!audioCtx) {
@@ -51,11 +62,56 @@
     }
   }
 
+  function pageVolumeOf(el) {
+    let v = pageVolume.get(el);
+    if (v === undefined) {
+      // First touch: whatever the element has now is the page's volume. Our
+      // (Xray) view of el.volume is always the native value.
+      v = el.volume;
+      pageVolume.set(el, v);
+    }
+    return v;
+  }
+
+  // How much of the tab level is applied via element.volume. Routed elements
+  // get the level from their GainNode; a boost that couldn't be routed is
+  // clamped to 100% (best effort).
+  function volumeFactor(el) {
+    return gainNodes.has(el) ? 1 : Math.min(currentGain, 1);
+  }
+
+  // Write pageVolume * factor to the element's real volume.
+  function syncVolume(el) {
+    const target = pageVolumeOf(el) * volumeFactor(el);
+    try { if (el.volume !== target) el.volume = target; } catch (_) {}
+  }
+
+  // Whether createMediaElementSource on this element will actually carry its
+  // audio. Routing is one-way, and for cross-origin media without CORS or
+  // DRM (EME) media it permanently outputs silence instead — so only route
+  // media whose origin we can vouch for, and otherwise cap at 100%.
+  function safeToRoute(el) {
+    if (pageRouted.has(el) || el.mediaKeys) return false;
+    const src = el.currentSrc;
+    // No source yet (retried on loadedmetadata), or a srcObject stream whose
+    // origin can't be checked.
+    if (!src) return false;
+    if (/^(blob|data|mediastream):/.test(src)) return true; // MSE (YouTube etc.)
+    try {
+      if (new URL(src, location.href).origin === location.origin) return true;
+    } catch (_) {
+      return false;
+    }
+    // Loaded with CORS: had the server refused, the element wouldn't play.
+    return el.crossOrigin === "anonymous" || el.crossOrigin === "use-credentials";
+  }
+
   // Route an element through Web Audio. Returns the GainNode, or null if it
   // could not be routed (e.g. already captured by the page, or no context).
   function routeElement(el) {
     if (gainNodes.has(el)) return gainNodes.get(el);
     if (routed.has(el)) return null; // previously failed; don't retry
+    if (!safeToRoute(el)) return null; // may become safe once it has a source
     routed.add(el);
 
     const ctx = getContext();
@@ -67,8 +123,6 @@
       gain.gain.value = currentGain;
       source.connect(gain);
       gain.connect(ctx.destination);
-      // The element's own volume now compounds with the gain node, so pin it.
-      try { el.volume = 1.0; } catch (_) {}
       gainNodes.set(el, gain);
       resumeContext();
       return gain;
@@ -81,89 +135,125 @@
   }
 
   function applyTo(el) {
+    // Capture the page's volume before anything below can change it.
+    pageVolumeOf(el);
     const gain = gainNodes.get(el);
     if (gain) {
       gain.gain.value = currentGain;
-      // The element's own volume must stay pinned at 1.0 so it doesn't
-      // compound with the gain node — re-assert in case something else
-      // (e.g. the page restoring its own remembered volume) changed it.
-      lastSetVolume.set(el, 1.0);
-      try { if (el.volume !== 1.0) el.volume = 1.0; } catch (_) {}
       resumeContext();
-      return;
+    } else if (currentGain > 1.0) {
+      routeElement(el);
     }
-
-    if (currentGain <= 1.0) {
-      // No boost needed: stay on the simple, CORS-safe path.
-      lastSetVolume.set(el, currentGain);
-      try { if (el.volume !== currentGain) el.volume = currentGain; } catch (_) {}
-      return;
-    }
-
-    // Boost requested: route through Web Audio. If routing fails, clamp the
-    // element to full volume (best effort). Record the intended value before
-    // routing (which itself may set el.volume) so the volumechange listener
-    // never observes a stale expectation.
-    lastSetVolume.set(el, 1.0);
-    const node = routeElement(el);
-    if (node) {
-      node.gain.value = currentGain;
-    } else {
-      try { if (el.volume !== 1.0) el.volume = 1.0; } catch (_) {}
-    }
+    syncVolume(el);
   }
 
   function applyAll() {
     for (const el of known) applyTo(el);
   }
 
-  // volumechange carries no information about who changed it — a user
-  // dragging the page's own slider looks identical to a page overwriting
-  // it. So instead of reacting to volumechange indefinitely (which fights
-  // the native control forever) or for a guessed time window (which is
-  // exactly when a user is most likely to touch the slider), we:
-  //   1. Defer our *first* application until the element has loaded
-  //      metadata, so we apply after a player's own load-time volume
-  //      restore (e.g. YouTube's remembered volume) rather than racing it.
-  //   2. Correct only the very first divergence seen after that — covers a
-  //      restore that lands slightly later — then never touch the element
-  //      again, so every subsequent native-slider interaction just works.
+  // Page scripts call our hooks with page objects; normalize them to the
+  // same Xray wrapper we get from DOM queries so WeakMap/Set lookups match.
+  function toXray(obj) {
+    return typeof XPCNativeWrapper === "function" ? XPCNativeWrapper(obj) : obj;
+  }
+
+  // Hook a few of the *page's* HTMLMediaElement/AudioContext prototype
+  // members (reached via wrappedJSObject, handed back with exportFunction).
+  // Our own view of every element is an Xray and keeps using the native
+  // members, so there is no recursion. Runs at document_start, before any
+  // page script. Firefox-only; a no-op elsewhere.
+  function installPageHooks() {
+    let pageWindow;
+    try {
+      pageWindow = window.wrappedJSObject;
+      if (!pageWindow || typeof exportFunction !== "function") return;
+    } catch (_) {
+      return;
+    }
+
+    // volume: the page reads back its own volume, and its writes are scaled
+    // by the tab level. Players (YouTube) restoring their remembered volume
+    // therefore just set the "page volume" instead of fighting us.
+    try {
+      const native = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, "volume");
+      const pageProto = pageWindow.HTMLMediaElement.prototype;
+      if (native && native.get && native.set) {
+        const get = exportFunction(function () {
+          const el = toXray(this);
+          // Let the native getter reject non-media `this` as usual.
+          const real = native.get.call(el);
+          const v = pageVolume.get(el);
+          return v === undefined ? real : v;
+        }, pageWindow);
+
+        const set = exportFunction(function (value) {
+          const el = toXray(this);
+          const v = Number(value);
+          if (!(v >= 0 && v <= 1)) {
+            // Let the native setter throw the proper TypeError/IndexSizeError.
+            native.set.call(el, value);
+            return;
+          }
+          const before = native.get.call(el);
+          const changed = pageVolume.get(el) !== v;
+          pageVolume.set(el, v);
+          // Also picks up elements never inserted into the DOM (new Audio()).
+          track(el);
+          syncVolume(el);
+          // If the page's volume changed but the real one didn't (e.g. tab
+          // level 0%), still give the page the volumechange it expects.
+          if (changed && native.get.call(el) === before) {
+            Promise.resolve().then(() => el.dispatchEvent(new Event("volumechange")));
+          }
+        }, pageWindow);
+
+        Object.defineProperty(pageProto, "volume", {
+          get,
+          set,
+          enumerable: native.enumerable,
+          configurable: true,
+        });
+      }
+    } catch (_) {}
+
+    // play(): catch media the DOM never shows us (detached new Audio(),
+    // closed shadow roots) before it starts playing.
+    try {
+      const proto = pageWindow.HTMLMediaElement.prototype;
+      const originalPlay = proto.play;
+      if (typeof originalPlay === "function") {
+        proto.play = exportFunction(function (...args) {
+          try { track(toXray(this)); } catch (_) {}
+          // Reflect.apply keeps `args` in our compartment; passing our array
+          // to page code via .apply() fails with a permission error.
+          return Reflect.apply(originalPlay, this, args);
+        }, pageWindow);
+      }
+    } catch (_) {}
+
+    // createMediaElementSource(): note elements the page routes itself, so
+    // we never take them first and break its audio graph.
+    try {
+      const proto = pageWindow.AudioContext.prototype;
+      const originalCreate = proto.createMediaElementSource;
+      if (typeof originalCreate === "function") {
+        proto.createMediaElementSource = exportFunction(function (...args) {
+          try { if (args[0]) pageRouted.add(toXray(args[0])); } catch (_) {}
+          return Reflect.apply(originalCreate, this, args);
+        }, pageWindow);
+      }
+    } catch (_) {}
+  }
+
+  installPageHooks();
+
   function track(el) {
     if (known.has(el)) return;
     known.add(el);
-
-    const firstApply = () => {
-      applyTo(el);
-      let corrected = false;
-      el.addEventListener("volumechange", () => {
-        if (corrected || el.volume === lastSetVolume.get(el)) return;
-        corrected = true;
-        applyTo(el);
-      });
-      // Some players (YouTube confirmed) re-apply their own remembered
-      // volume again around a seek (e.g. an ad boundary or segment change),
-      // well after the one-shot correction above already fired. Re-arm the
-      // guard specifically on seeking rather than on every volumechange —
-      // that would fight manual slider drags again (see project memory).
-      el.addEventListener("seeking", () => {
-        corrected = false;
-      });
-    };
-
-    if (el.readyState >= 1 /* HAVE_METADATA */) {
-      firstApply();
-      return;
-    }
-    let applied = false;
-    const once = () => {
-      if (applied) return;
-      applied = true;
-      firstApply();
-    };
-    el.addEventListener("loadedmetadata", once, { once: true });
-    // Fallback in case metadata never loads (e.g. a broken/unusual source):
-    // don't leave gain unapplied forever.
-    window.setTimeout(once, 1500);
+    applyTo(el);
+    // A boost can only be routed once the source is known (see safeToRoute),
+    // and a new source may change that.
+    el.addEventListener("loadedmetadata", () => applyTo(el));
   }
 
   function scan(root) {
